@@ -8,13 +8,13 @@ import com.linecorp.bot.model.response.BotApiResponse;
 import io.vertx.core.http.HttpClientOptions;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.Json;
+import io.vertx.rxjava.core.RxHelper;
 import io.vertx.rxjava.core.Vertx;
 import io.vertx.rxjava.core.http.HttpClient;
 import io.vertx.rxjava.core.http.HttpClientRequest;
 import io.vertx.rxjava.core.http.HttpClientResponse;
 import lombok.Getter;
 import rx.Observable;
-import rx.subjects.ReplaySubject;
 
 public class MessagingApiClient {
     public static final String BASE_URL = "https://api.line.me";
@@ -24,7 +24,11 @@ public class MessagingApiClient {
 
     public MessagingApiClient(Vertx vertx, String accessToken) {
         this.accessToken = accessToken;
-        httpClient = vertx.createHttpClient(new HttpClientOptions().setSsl(true).setLogActivity(true));
+        httpClient = vertx.createHttpClient(
+                new HttpClientOptions().setSsl(true)
+                                       .setLogActivity(true)
+                                       .setMaxPoolSize(30)
+        );
     }
 
     public Observable<BotApiResponse> replyMessage(ReplyMessage replyMessage) {
@@ -53,58 +57,55 @@ public class MessagingApiClient {
     }
 
     public Observable<HttpClientResponse> getMessageContent(String messageId) {
-        HttpClientRequest request = httpClient.getAbs(BASE_URL + "/v2/bot/message/" + messageId + "/content");
-        request.putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer " + accessToken);
+        return Observable.create(subscriber -> {
+            HttpClientRequest request = httpClient.getAbs(
+                    BASE_URL + "/v2/bot/message/" + messageId + "/content");
+            request.putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer " + accessToken);
 
-        ReplaySubject<HttpClientResponse> subject = ReplaySubject.create();
-        request.toObservable().subscribe(
-                response -> {
-                    if (response.statusCode() / 100 != 2) {
-                        subject.onError(new ErrorResponseException(response.statusCode()));
-                    }
-                    subject.onNext(response);
-                },
-                throwable -> subject.onError(throwable)
-        );
+            request.toObservable()
+                   .filter(this::filterSuccessResponse)
+                   .subscribe(subscriber);
 
-        request.end();
-        return subject;
+            request.end();
+        });
     }
 
     private <T> Observable<T> post(HttpClientRequest request, String body, Class<T> clazz) {
-        request.putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer " + accessToken)
-               .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json; charset=utf-8");
+        return Observable.create(subscriber -> {
+            request.setTimeout(5000)
+                   .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer " + accessToken)
+                   .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json; charset=utf-8");
 
-        Observable<T> observable = toObservable(request, clazz);
+            request.toObservable()
+                   .filter(this::filterSuccessResponse)
+                   .flatMap(response -> response.toObservable())
+                   .lift(RxHelper.unmarshaller(clazz))
+                   .subscribe(subscriber);
 
-        request.end(body);
-        return observable;
+            request.end(body);
+        });
     }
 
     private <T> Observable<T> get(HttpClientRequest request, Class<T> clazz) {
-        request.putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer " + accessToken);
+        return Observable.create(subscriber -> {
+            request.setTimeout(5000)
+                   .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer " + accessToken);
 
-        Observable<T> observable = toObservable(request, clazz);
+            request.toObservable()
+                   .filter(this::filterSuccessResponse)
+                   .flatMap(response -> response.toObservable())
+                   .lift(RxHelper.unmarshaller(clazz))
+                   .subscribe(subscriber);
 
-        request.end();
-        return observable;
+            request.end();
+        });
     }
 
-    private <T> Observable<T> toObservable(HttpClientRequest request, Class<T> clazz) {
-        ReplaySubject<T> subject = ReplaySubject.create();
-        request.toObservable().flatMap(response -> {
-            if (response.statusCode() / 100 != 2) {
-                throw new ErrorResponseException(response.statusCode());
-            }
-            return response.toObservable();
-        }).subscribe(
-                buffer -> {
-                    subject.onNext(Json.decodeValue(buffer.toString("utf-8"), clazz));
-                    subject.onCompleted();
-                },
-                throwable -> subject.onError(throwable)
-        );
-        return subject;
+    private boolean filterSuccessResponse(HttpClientResponse response) {
+        if (response.statusCode() / 100 != 2) {
+            throw new ErrorResponseException(response.statusCode());
+        }
+        return true;
     }
 
     @Getter

@@ -16,9 +16,9 @@ public class KitchenSinkApplication {
         Json.prettyMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
         Vertx vertx = Vertx.vertx(new VertxOptions());
-
         MessagingApiClient messagingApiClient = new MessagingApiClient(vertx, "accessToken");
         WebhookServer webhookServer = new WebhookServer(vertx, "channelSecret", messagingApiClient);
+
         webhookServer.run(8080);
     }
 }
