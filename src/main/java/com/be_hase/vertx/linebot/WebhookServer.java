@@ -97,16 +97,16 @@ public class WebhookServer {
                 event -> {
                 },
                 throwable -> {
+                    log.error("Error: {}, {}",
+                              throwable.getClass().getName(), throwable.getMessage(), throwable);
                     context.response()
                            .setStatusCode(HttpResponseStatus.INTERNAL_SERVER_ERROR.code())
                            .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "text/plain")
                            .end(HttpResponseStatus.INTERNAL_SERVER_ERROR.reasonPhrase());
                 },
-                () -> {
-                    context.response()
-                           .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "text/plain")
-                           .end(HttpResponseStatus.OK.reasonPhrase());
-                }
+                () -> context.response()
+                             .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "text/plain")
+                             .end(HttpResponseStatus.OK.reasonPhrase())
         );
     }
 
