@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 import com.linecorp.bot.client.LineSignatureValidator;
+import com.linecorp.bot.model.ReplyMessage;
 import com.linecorp.bot.model.event.BeaconEvent;
 import com.linecorp.bot.model.event.CallbackRequest;
 import com.linecorp.bot.model.event.Event;
@@ -20,6 +21,7 @@ import com.linecorp.bot.model.event.message.MessageContent;
 import com.linecorp.bot.model.event.message.StickerMessageContent;
 import com.linecorp.bot.model.event.message.TextMessageContent;
 import com.linecorp.bot.model.event.message.VideoMessageContent;
+import com.linecorp.bot.model.message.TextMessage;
 
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.vertx.core.http.HttpHeaders;
@@ -53,10 +55,28 @@ public class WebhookServer {
         router.route().handler(LoggerHandler.create(LoggerFormat.DEFAULT));
         router.route().handler(BodyHandler.create());
         router.route(HttpMethod.POST, "/callback").handler(this::receiveWebhook);
+        router.route(HttpMethod.GET, "/test").handler(this::test);
 
         final HttpServer httpServer = vertx.createHttpServer();
         httpServer.requestHandler(router::accept);
         httpServer.listen(port);
+    }
+
+    private void test(RoutingContext context) {
+        messagingApiClient.replyMessage(new ReplyMessage("replyToken", new TextMessage("test"))).subscribe(
+                res -> {
+                    context.response()
+                           .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "text/plain")
+                           .end(HttpResponseStatus.OK.reasonPhrase());
+                },
+                throwable -> {
+                    log.error("error.", throwable);
+                    context.response()
+                           .setStatusCode(HttpResponseStatus.INTERNAL_SERVER_ERROR.code())
+                           .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "text/plain")
+                           .end(HttpResponseStatus.INTERNAL_SERVER_ERROR.reasonPhrase());
+                }
+        );
     }
 
     private void receiveWebhook(RoutingContext context) {
@@ -75,7 +95,6 @@ public class WebhookServer {
 
         parseBody(bodyAsString).subscribe(
                 event -> {
-
                 },
                 throwable -> {
                     context.response()
