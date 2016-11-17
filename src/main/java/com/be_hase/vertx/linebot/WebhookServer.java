@@ -4,7 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 import com.linecorp.bot.client.LineSignatureValidator;
-import com.linecorp.bot.model.ReplyMessage;
 import com.linecorp.bot.model.event.BeaconEvent;
 import com.linecorp.bot.model.event.CallbackRequest;
 import com.linecorp.bot.model.event.Event;
@@ -21,14 +20,13 @@ import com.linecorp.bot.model.event.message.MessageContent;
 import com.linecorp.bot.model.event.message.StickerMessageContent;
 import com.linecorp.bot.model.event.message.TextMessageContent;
 import com.linecorp.bot.model.event.message.VideoMessageContent;
-import com.linecorp.bot.model.message.TextMessage;
 
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.json.Json;
 import io.vertx.ext.web.handler.LoggerFormat;
-import io.vertx.rxjava.core.Vertx;
+import io.vertx.rxjava.core.AbstractVerticle;
 import io.vertx.rxjava.core.http.HttpServer;
 import io.vertx.rxjava.ext.web.Router;
 import io.vertx.rxjava.ext.web.RoutingContext;
@@ -38,45 +36,32 @@ import lombok.extern.slf4j.Slf4j;
 import rx.Observable;
 
 @Slf4j
-public class WebhookServer {
-    private final Vertx vertx;
-    private final LineSignatureValidator lineSignatureValidator;
-    private final MessagingApiClient messagingApiClient;
+public class WebhookServer extends AbstractVerticle {
+    private LineSignatureValidator lineSignatureValidator;
+    private MessagingApiClient messagingApiClient;
 
-    public WebhookServer(Vertx vertx, String channelSecret, MessagingApiClient messagingApiClient) {
-        this.vertx = vertx;
-        lineSignatureValidator = new LineSignatureValidator(
-                channelSecret.getBytes(StandardCharsets.UTF_8));
-        this.messagingApiClient = messagingApiClient;
-    }
+    @Override
+    public void start() throws Exception {
+        String channelSecret = config().getString("channelSecret");
+        String accessToken = config().getString("accessToken");
 
-    public void run(int port) {
+        lineSignatureValidator = new LineSignatureValidator(channelSecret.getBytes(StandardCharsets.UTF_8));
+        messagingApiClient = new MessagingApiClient(vertx, accessToken);
+
         final Router router = Router.router(vertx);
         router.route().handler(LoggerHandler.create(LoggerFormat.DEFAULT));
         router.route().handler(BodyHandler.create());
         router.route(HttpMethod.POST, "/callback").handler(this::receiveWebhook);
-        router.route(HttpMethod.GET, "/test").handler(this::test);
+        router.route(HttpMethod.GET, "/test").handler(context -> {
+            log.info("test");
+            context.response()
+                   .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "text/plain")
+                   .end(HttpResponseStatus.OK.reasonPhrase());
+        });
 
         final HttpServer httpServer = vertx.createHttpServer();
         httpServer.requestHandler(router::accept);
-        httpServer.listen(port);
-    }
-
-    private void test(RoutingContext context) {
-        messagingApiClient.replyMessage(new ReplyMessage("replyToken", new TextMessage("test"))).subscribe(
-                res -> {
-                    context.response()
-                           .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "text/plain")
-                           .end(HttpResponseStatus.OK.reasonPhrase());
-                },
-                throwable -> {
-                    log.error("error.", throwable);
-                    context.response()
-                           .setStatusCode(HttpResponseStatus.INTERNAL_SERVER_ERROR.code())
-                           .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "text/plain")
-                           .end(HttpResponseStatus.INTERNAL_SERVER_ERROR.reasonPhrase());
-                }
-        );
+        httpServer.listen(config().getInteger("port", 8080));
     }
 
     private void receiveWebhook(RoutingContext context) {
