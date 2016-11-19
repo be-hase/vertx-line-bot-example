@@ -26,8 +26,6 @@ public class MessagingApiClient {
         this.accessToken = accessToken;
         httpClient = vertx.createHttpClient(
                 new HttpClientOptions().setSsl(true)
-                                       .setLogActivity(true)
-                                       .setMaxPoolSize(30)
         );
     }
 
