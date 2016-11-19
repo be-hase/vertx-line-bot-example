@@ -1,3 +1,3 @@
 ## vertx-line-bot-example
 
-For learning vert.x
+For learning vert.x and RxJava
